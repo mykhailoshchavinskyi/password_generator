@@ -9,6 +9,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import shiboken6  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from passgen.gui.main_window import MainWindow  # noqa: E402
@@ -42,6 +43,9 @@ def main() -> int:
     window.symbol_set_edit.setText("!a")
     shoot(window, "error.png")
     window.close()
+    # як і в passgen.gui.app: вікно знищуємо раніше за QApplication,
+    # інакше PySide під час виходу падає з segfault
+    shiboken6.delete(window)
     return 0
 
 
