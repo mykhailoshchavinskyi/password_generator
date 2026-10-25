@@ -125,7 +125,16 @@ def build_linux(stem: str) -> list[Path]:
     return outputs
 
 
+def _utf8_output() -> None:
+    """Українські повідомлення не мають падати, якщо консоль у cp1252 (Windows, CI, `> файл`)."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main() -> int:
+    _utf8_output()
     RELEASE.mkdir(exist_ok=True)
     os_name = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
     stem = f"{NAME}-{version()}-{os_name}-{arch()}"

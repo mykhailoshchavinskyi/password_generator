@@ -27,6 +27,14 @@ def _range(text: str) -> tuple[int, int]:
     return lo_i, hi_i
 
 
+def _utf8_output() -> None:
+    """Українські повідомлення не мають падати, якщо консоль у cp1252 (Windows, CI, `> файл`)."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     d = Config()
     ap = argparse.ArgumentParser(prog="passgen-cli", description="Генератор парольних фраз")
@@ -63,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _utf8_output()
     ap = build_parser()
     args = ap.parse_args(argv)
     if not 1 <= args.count <= 10_000:

@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -137,3 +140,13 @@ def test_settings_invalid_combination_resets_config(tmp_path):
 def test_config_dir_override(tmp_path, monkeypatch):
     monkeypatch.setenv("PASSGEN_CONFIG_DIR", str(tmp_path))
     assert settings.settings_path() == tmp_path / "settings.json"
+
+
+def test_cli_survives_non_utf8_console():
+    # Windows із перенаправленим виводом: stdout у cp1252
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    out = subprocess.run(
+        [sys.executable, "-m", "passgen.cli", "-n", "1"], capture_output=True, env=env
+    )
+    assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
+    assert "Парольна фраза" in out.stdout.decode("utf-8")
