@@ -1,0 +1,84 @@
+# Passgen
+
+[![CI](https://github.com/mykhailoshchavinskyi/password_generator/actions/workflows/ci.yml/badge.svg)](https://github.com/mykhailoshchavinskyi/password_generator/actions/workflows/ci.yml)
+
+Десктопний генератор парольних фраз для Windows, macOS і Linux. Фраза складається з англійських слів, цифр і спецсимволів, наприклад `&!519Deck_449Lip&_867$Wine`. Передрукувати її легше, ніж випадковий набір символів, а стійкість висока: близько 82 біт за стандартних налаштувань.
+
+<img src="docs/images/main-window.png" alt="Головне вікно Passgen" width="460">
+
+- Усі фрази, що відповідають налаштуванням, рівноймовірні. Використовується криптографічно стійкий генератор (`secrets`).
+- Можна змінювати кількість слів, максимальну довжину, кількість цифр і символів, набір спецсимволів, роздільник, регістр і словник.
+- Шкала показує стійкість у бітах.
+- Буфер обміну автоматично очищається, а фраза позначається як секретна для менеджерів буфера.
+- Програма працює без інтернету і ніде не зберігає паролі.
+
+## Завантаження
+
+Готові файли для кожної ОС лежать на сторінці [Releases](https://github.com/mykhailoshchavinskyi/password_generator/releases/latest). Як встановити й користуватися, описано в **[посібнику користувача](docs/user-guide.md)**.
+
+## Запуск з вихідного коду
+
+Потрібен Python 3.10+.
+
+```sh
+git clone https://github.com/mykhailoshchavinskyi/password_generator.git
+cd password_generator
+python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+
+passgen                  # вікно
+passgen-cli -n 5         # консольний режим, сумісний із початковим passgen.py
+```
+
+## Розробка
+
+```sh
+pytest                   # тести (GUI-тести працюють без дисплея)
+ruff check . && ruff format --check .
+QT_QPA_PLATFORM=offscreen python scripts/screenshot.py   # оновити скріншоти в docs/images
+python scripts/make_icon.py                              # перемалювати іконку
+```
+
+Структура:
+
+```
+src/passgen/
+  core.py         алгоритм: Config, Generator, оцінка ентропії
+  wordlist.py     вбудований словник і завантаження власного
+  settings.py     збереження налаштувань у JSON
+  cli.py          консольний інтерфейс
+  gui/            вікно (PySide6), буфер обміну, кольори теми
+  data/           words.txt, icon.png
+tests/            pytest; reference/ містить початковий passgen.py для звірки ентропії
+scripts/          збірка, скріншоти, іконка
+packaging/        точка входу для PyInstaller
+```
+
+### Алгоритм
+
+Алгоритм перенесено з початкового `passgen.py` без змін у логіці:
+
+1. Кожна частина фрази — це слово з великої літери, блок цифр і блок спецсимволів у випадковому порядку.
+2. Динамічне програмування (`Generator._ways`) рахує, скільки існує фраз для кожного розподілу довжин частин у межах `max_len`.
+3. Довжини вибираються пропорційно цим кількостям, тому всі допустимі фрази рівноймовірні, а `entropy_bits()` дає точну оцінку.
+
+Відмінності від оригіналу:
+
+- усі константи стали параметрами `Config`;
+- за замовчуванням 3 слова (в оригіналі `WORDS_COUNT = 1`, тобто ~30 біт);
+- блоки цифр і символів можуть бути порожніми, і вага перестановок для них рахується правильно;
+- зі словника прибрано 115 образливих чи чутливих слів, власних назв і вигуків.
+
+Тест `test_entropy_matches_original_script` перевіряє, що на словнику оригіналу оцінки збігаються до 1e-9.
+
+## CI і релізи
+
+- **CI** (`.github/workflows/ci.yml`) запускається на кожен push і pull request: ruff, потім pytest на Windows, macOS і Linux з Python 3.10–3.13. Linux-збірка з Python 3.13 також генерує скріншоти й додає їх до запуску як артефакт.
+- **Release** (`.github/workflows/release.yml`) запускається за тегом `v*`. Він збирає PyInstaller-ом `.exe` для Windows, `.dmg` для macOS (arm64 і x64), а також `.AppImage` і `.tar.gz` для Linux. Кожен файл запускається в режимі самоперевірки (`PASSGEN_SMOKE_TEST=1`). Потім створюється GitHub Release з файлами і `SHA256SUMS.txt`. Ручний запуск (Run workflow) лише збирає файли без публікації.
+
+Як випустити нову версію:
+
+1. Змініть `__version__` у `src/passgen/__init__.py` і додайте запис у `CHANGELOG.md`.
+2. Закомітьте зміни, потім `git tag v1.1.0 && git push origin v1.1.0`.
+
+Локальна збірка для поточної ОС: `pip install -e ".[build]" && python scripts/build.py`. Результат з'явиться в `release/`.

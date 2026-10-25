@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "passgen-desktop"
+dynamic = ["version"]
+description = "Десктопний генератор парольних фраз"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["PySide6-Essentials>=6.6"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: X11 Applications :: Qt",
+    "Topic :: Security",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt>=4.4", "pytest-cov>=5", "ruff==0.17.2"]
+build = ["pyinstaller>=6.6", "pillow>=10"]
+
+[project.scripts]
+passgen-cli = "passgen.cli:main"
+
+[project.gui-scripts]
+passgen = "passgen.gui.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "passgen.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+passgen = ["data/*.txt", "data/*.png"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["tests/reference"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
