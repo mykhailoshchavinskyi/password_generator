@@ -74,11 +74,11 @@ packaging/        точка входу для PyInstaller
 ## CI і релізи
 
 - **CI** (`.github/workflows/ci.yml`) запускається на кожен push і pull request: ruff, потім pytest на Windows, macOS і Linux з Python 3.10–3.13. Linux-збірка з Python 3.13 також генерує скріншоти й додає їх до запуску як артефакт.
-- **Release** (`.github/workflows/release.yml`) запускається за тегом `v*`. Він збирає PyInstaller-ом `.exe` для Windows, `.dmg` для macOS (arm64 і x64), а також `.AppImage` і `.tar.gz` для Linux. Кожен файл запускається в режимі самоперевірки (`PASSGEN_SMOKE_TEST=1`). Потім створюється GitHub Release з файлами і `SHA256SUMS.txt`. Ручний запуск (Run workflow) лише збирає файли без публікації.
+- **Release** (`.github/workflows/release.yml`) запускається за тегом `v*`. Він збирає PyInstaller-ом `.exe` для Windows, `.dmg` для macOS (arm64 і x64), а також `.AppImage` і `.tar.gz` для Linux. Кожен файл запускається в режимі самоперевірки (`PASSGEN_SMOKE_TEST=1`). Потім створюється GitHub Release з файлами і `SHA256SUMS.txt`. Ручний запуск (Actions → Release → Run workflow) з порожнім полем `tag` лише збирає файли; якщо вказати `tag`, наприклад `v1.1.0`, workflow сам створить цей тег на вибраній гілці й опублікує реліз.
 
 Як випустити нову версію:
 
 1. Змініть `__version__` у `src/passgen/__init__.py` і додайте запис у `CHANGELOG.md`.
-2. Закомітьте зміни, потім `git tag v1.1.0 && git push origin v1.1.0`.
+2. Закомітьте зміни, потім `git tag v1.1.0 && git push origin v1.1.0` (або ручний запуск Release з `tag: v1.1.0`).
 
 Локальна збірка для поточної ОС: `pip install -e ".[build]" && python scripts/build.py`. Результат з'явиться в `release/`.

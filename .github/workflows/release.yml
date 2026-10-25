@@ -1,11 +1,20 @@
 name: Release
 
 # Тег v* збирає програму для всіх ОС і публікує GitHub Release.
-# Ручний запуск (Run workflow) лише збирає файли й додає їх до запуску як артефакти.
+# Ручний запуск (Run workflow): з порожнім полем tag лише збирає файли як артефакти;
+# з tag, наприклад v1.0.0, створює цей тег на поточному коміті й публікує реліз.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релізу (наприклад v1.0.0). Порожньо — лише збірка."
+        required: false
+        default: ""
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
 permissions:
   contents: read
@@ -66,7 +75,7 @@ jobs:
 
   publish:
     name: Публікація релізу
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -76,8 +85,8 @@ jobs:
       - name: Версія в коді збігається з тегом
         run: |
           code_version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/passgen/__init__.py)
-          if [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Тег $GITHUB_REF_NAME, а в src/passgen/__init__.py версія $code_version"
+          if [ "v$code_version" != "$RELEASE_TAG" ]; then
+            echo "::error::Тег $RELEASE_TAG, а в src/passgen/__init__.py версія $code_version"
             exit 1
           fi
       - uses: actions/download-artifact@v8
@@ -89,5 +98,8 @@ jobs:
         run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Passgen ${{ env.RELEASE_TAG }}
           files: release/*
           generate_release_notes: true
