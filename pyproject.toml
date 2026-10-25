@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Десктопний генератор парольних фраз"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{ name = "mykhailoshchavinskyi", email = "mykhailo.shchavinskyi@gmail.com" }]
 dependencies = ["PySide6-Essentials>=6.6"]
 classifiers = [
     "Programming Language :: Python :: 3",

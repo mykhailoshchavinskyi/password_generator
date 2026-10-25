@@ -129,3 +129,24 @@ def test_missing_custom_wordlist_falls_back(qtbot, tmp_path):
     qtbot.addWidget(w)
     assert w.settings.wordlist_path is None
     assert "Вбудований" in w.wordlist_label.text()
+
+
+def test_about_shows_author_and_email(window, qtbot):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    text = window.about_text()
+    assert "Автор: mykhailoshchavinskyi" in text
+    assert 'href="mailto:mykhailo.shchavinskyi@gmail.com"' in text
+
+    seen = []
+
+    def close_box():
+        box = QApplication.activeModalWidget()
+        if isinstance(box, QMessageBox):
+            seen.append(box.text())
+            box.accept()
+
+    QTimer.singleShot(100, close_box)
+    window._about()
+    assert seen and "mykhailo.shchavinskyi@gmail.com" in seen[0]

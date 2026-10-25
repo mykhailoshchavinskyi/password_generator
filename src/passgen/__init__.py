@@ -2,5 +2,16 @@
 
 from passgen.core import Case, Config, ConfigError, Generator, Passphrase
 
-__version__ = "1.0.0"
-__all__ = ["Case", "Config", "ConfigError", "Generator", "Passphrase", "__version__"]
+__version__ = "1.0.1"
+__author__ = "mykhailoshchavinskyi"
+__email__ = "mykhailo.shchavinskyi@gmail.com"
+__all__ = [
+    "Case",
+    "Config",
+    "ConfigError",
+    "Generator",
+    "Passphrase",
+    "__author__",
+    "__email__",
+    "__version__",
+]

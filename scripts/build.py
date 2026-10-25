@@ -45,11 +45,64 @@ exec "$HERE/usr/lib/passgen/Passgen" "$@"
 """
 
 
-def version() -> str:
+def metadata() -> tuple[str, str, str]:
+    """(версія, автор, пошта) з src/passgen/__init__.py."""
     sys.path.insert(0, str(ROOT / "src"))
-    from passgen import __version__
+    import passgen
 
-    return __version__
+    return passgen.__version__, passgen.__author__, passgen.__email__
+
+
+def version() -> str:
+    return metadata()[0]
+
+
+ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+
+
+def windows_icon() -> Path:
+    """.ico з BMP-зображеннями: Провідник Windows часто не показує PNG-іконки малих розмірів
+    і підставляє стандартну, а PyInstaller (через Pillow) пише саме PNG."""
+    from PIL import Image
+
+    out = ROOT / "build" / "icon.ico"
+    out.parent.mkdir(exist_ok=True)
+    Image.open(ICON).convert("RGBA").save(
+        out, format="ICO", sizes=[(n, n) for n in ICO_SIZES], bitmap_format="bmp"
+    )
+    return out
+
+
+def windows_version_file() -> Path:
+    """Відомості, які Windows показує у «Властивості → Докладно»."""
+    ver, author, email = metadata()
+    nums = tuple(int(x) for x in ver.split(".")[:3]) + (0,)
+    fields = {
+        "CompanyName": author,
+        "FileDescription": "Passgen — генератор парольних фраз",
+        "FileVersion": ver,
+        "InternalName": NAME,
+        "LegalCopyright": f"© {author} <{email}>",
+        "OriginalFilename": f"{NAME}.exe",
+        "ProductName": NAME,
+        "ProductVersion": ver,
+    }
+    strings = ",\n".join(f"        StringStruct({k!r}, {v!r})" for k, v in fields.items())
+    text = f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={nums}, prodvers={nums}, mask=0x3F, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('042204B0', [
+{strings}
+    ])]),
+    VarFileInfo([VarStruct('Translation', [0x0422, 1200])]),
+  ],
+)
+"""
+    out = ROOT / "build" / "version.txt"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    return out
 
 
 def arch() -> str:
@@ -67,7 +120,7 @@ def pyinstaller(onefile: bool) -> None:
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--windowed",
         "--name", NAME,
-        "--icon", str(ICON),
+        "--icon", str(windows_icon() if sys.platform == "win32" else ICON),
         "--collect-data", "passgen",
         "--distpath", str(DIST),
         "--workpath", str(ROOT / "build"),
@@ -77,6 +130,8 @@ def pyinstaller(onefile: bool) -> None:
         args += ["--exclude-module", module]
     if onefile:
         args.append("--onefile")
+    if sys.platform == "win32":
+        args += ["--version-file", str(windows_version_file())]
     if sys.platform == "darwin":
         args += ["--osx-bundle-identifier", BUNDLE_ID]
     run(*args, str(ROOT / "packaging" / "launcher.py"))

@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from passgen import __version__
+from passgen import __author__, __email__, __version__
 from passgen.core import (
     DIGITS_RANGE,
     MAX_LEN_RANGE,
@@ -525,15 +525,28 @@ class MainWindow(QMainWindow):
         self.clipboard_note.setText(text)
         self.clipboard_note.setStyleSheet(f"color: {theme.current().muted};")
 
-    def _about(self) -> None:
-        QMessageBox.about(
-            self,
-            "Про програму",
+    def about_text(self) -> str:
+        return (
             f"<b>Passgen {__version__}</b><br>Генератор парольних фраз.<br><br>"
             "Фраза рівномірно вибирається серед усіх, що відповідають налаштуванням, "
             "за допомогою криптографічно стійкого генератора випадкових чисел. "
-            "Паролі ніде не зберігаються і не передаються.",
+            "Паролі ніде не зберігаються і не передаються.<br><br>"
+            f"Автор: {__author__}<br>"
+            f'Пошта: <a href="mailto:{__email__}">{__email__}</a>'
         )
+
+    def _about(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Про програму")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(self.about_text())
+        box.setIconPixmap(self.windowIcon().pixmap(64, 64))
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        # посилання на пошту відкривається в поштовому клієнті, а текст можна виділити
+        label = box.findChild(QLabel, "qt_msgbox_label")
+        if label:
+            label.setOpenExternalLinks(True)
+        box.exec()
 
     # ---------- події вікна ----------
 
