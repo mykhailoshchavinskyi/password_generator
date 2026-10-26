@@ -391,9 +391,16 @@ class MainWindow(QMainWindow):
     def _apply_always_on_top(self) -> None:
         on = self.settings.always_on_top
         if bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint) != on:
+            # зміна прапорців перестворює вікно і ховає його (на Windows — завжди),
+            # тож видимість і положення запам'ятовуємо до зміни
+            was_visible = self.isVisible()
+            geometry = self.saveGeometry()
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on)
-            if self.isVisible():
+            if was_visible:
+                self.restoreGeometry(geometry)
                 self.show()
+                self.raise_()
+                self.activateWindow()
 
     def _schedule_save(self) -> None:
         if self._save:

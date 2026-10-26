@@ -150,3 +150,17 @@ def test_about_shows_author_and_email(window, qtbot):
     QTimer.singleShot(100, close_box)
     window._about()
     assert seen and "mykhailo.shchavinskyi@gmail.com" in seen[0]
+
+
+def test_always_on_top_keeps_window_visible(window, qtbot):
+    from PySide6.QtCore import Qt
+
+    window.move(120, 80)
+    pos = window.pos()
+    window.on_top_check.setChecked(True)
+    assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert window.isVisible()
+    assert window.pos() == pos
+    window.on_top_check.setChecked(False)
+    assert not window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert window.isVisible()
