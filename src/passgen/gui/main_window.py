@@ -35,6 +35,7 @@ from passgen.core import (
     MAX_LEN_RANGE,
     SEPARATOR_MAX,
     SYMBOLS_RANGE,
+    WORD_LEN_RANGE,
     WORDS_RANGE,
     Case,
     Config,
@@ -172,6 +173,7 @@ class MainWindow(QMainWindow):
 
         self.words_slider, words_row = self._slider_row(*WORDS_RANGE)
         form.addRow("Кількість слів", words_row)
+        form.addRow("Літер у слові", self._word_len_row())
         self.maxlen_slider, maxlen_row = self._slider_row(*MAX_LEN_RANGE)
         form.addRow("Максимальна довжина", maxlen_row)
 
@@ -234,6 +236,8 @@ class MainWindow(QMainWindow):
 
         for w in (
             self.words_slider,
+            self.word_len_min,
+            self.word_len_max,
             self.maxlen_slider,
             self.digits_min,
             self.digits_max,
@@ -244,6 +248,7 @@ class MainWindow(QMainWindow):
         self.symbol_set_edit.textChanged.connect(self._on_config_changed)
         self.separator_edit.textChanged.connect(self._on_config_changed)
         self.case_combo.currentIndexChanged.connect(self._on_config_changed)
+        self.word_len_mode.currentIndexChanged.connect(self._on_word_len_mode_changed)
         self.clear_spin.valueChanged.connect(self._on_app_option_changed)
         self.on_top_check.toggled.connect(self._on_app_option_changed)
 
@@ -261,6 +266,45 @@ class MainWindow(QMainWindow):
         lay.addWidget(slider, 1)
         lay.addWidget(value)
         return slider, row
+
+    def _word_len_row(self) -> QWidget:
+        """«рівно [5]» або «від [3] до [7]»: точна кількість літер чи діапазон."""
+        self.word_len_mode = QComboBox()
+        self.word_len_mode.addItem("рівно", "exact")
+        self.word_len_mode.addItem("від", "range")
+        self.word_len_mode.setToolTip("Точна кількість літер у кожному слові або діапазон")
+        self.word_len_min, self.word_len_max = QSpinBox(), QSpinBox()
+        for s in (self.word_len_min, self.word_len_max):
+            s.setRange(*WORD_LEN_RANGE)
+        self._word_len_to = QLabel("до")
+        a, b = self.word_len_min, self.word_len_max
+        # у режимі «рівно» максимум завжди дорівнює мінімуму; у «від–до» тягнемо інше поле
+        a.valueChanged.connect(
+            lambda v: b.setValue(v) if v > b.value() or self._word_len_exact() else None
+        )
+        b.valueChanged.connect(lambda v: a.setValue(v) if v < a.value() else None)
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        for w in (self.word_len_mode, a, self._word_len_to, b):
+            lay.addWidget(w)
+        lay.addStretch()
+        return row
+
+    def _word_len_exact(self) -> bool:
+        return self.word_len_mode.currentData() == "exact"
+
+    def _show_word_len_mode(self) -> None:
+        exact = self._word_len_exact()
+        self._word_len_to.setVisible(not exact)
+        self.word_len_max.setVisible(not exact)
+
+    def _on_word_len_mode_changed(self) -> None:
+        self._show_word_len_mode()
+        if self._word_len_exact():
+            # setValue сам викличе _on_config_changed, якщо значення зміниться
+            self.word_len_max.setValue(self.word_len_min.value())
+        self._on_config_changed()
 
     def _range_row(self, lo: int, hi: int) -> tuple[QSpinBox, QSpinBox, QWidget]:
         a, b = QSpinBox(), QSpinBox()
@@ -312,6 +356,13 @@ class MainWindow(QMainWindow):
         self._loading = True
         c = self.settings.config
         self.words_slider.setValue(c.words)
+        self.word_len_mode.setCurrentIndex(
+            self.word_len_mode.findData("exact" if c.word_len_min == c.word_len_max else "range")
+        )
+        self._show_word_len_mode()
+        self.word_len_max.setValue(WORD_LEN_RANGE[1])
+        self.word_len_min.setValue(c.word_len_min)
+        self.word_len_max.setValue(c.word_len_max)
         self.digits_min.setValue(c.digits_min)
         self.digits_max.setValue(c.digits_max)
         self.digits_min.setValue(c.digits_min)
@@ -330,6 +381,8 @@ class MainWindow(QMainWindow):
     def _config_from_widgets(self) -> Config:
         return Config(
             words=self.words_slider.value(),
+            word_len_min=self.word_len_min.value(),
+            word_len_max=self.word_len_max.value(),
             max_len=self.maxlen_slider.value(),
             digits_min=self.digits_min.value(),
             digits_max=self.digits_max.value(),

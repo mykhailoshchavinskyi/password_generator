@@ -26,6 +26,7 @@ ALLOWED_SYMBOLS = string.punctuation
 MAX_ATTEMPTS = 1000
 
 WORDS_RANGE = (1, 6)
+WORD_LEN_RANGE = (2, 12)  # як і обмеження на слова у власному словнику
 MAX_LEN_RANGE = (1, 128)
 DIGITS_RANGE = (0, 6)
 SYMBOLS_RANGE = (0, 4)
@@ -52,6 +53,9 @@ class Case(str, Enum):
 @dataclass(frozen=True)
 class Config:
     words: int = 3
+    # за замовчуванням без обмеження: увесь допустимий діапазон
+    word_len_min: int = WORD_LEN_RANGE[0]
+    word_len_max: int = WORD_LEN_RANGE[1]
     max_len: int = 26
     digits_min: int = 2
     digits_max: int = 3
@@ -100,6 +104,21 @@ class Passphrase:
                     yield kind, text
 
 
+def letters(n: int) -> str:
+    """1 літера, 3 літери, 5 літер, 12 літер."""
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} літера"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} літери"
+    return f"{n} літер"
+
+
+def word_len_text(config: Config) -> str:
+    """«рівно 5 літер» або «від 4 до 6 літер» — для повідомлень користувачу."""
+    lo, hi = config.word_len_min, config.word_len_max
+    return f"рівно {letters(lo)}" if lo == hi else f"від {lo} до {letters(hi)}"
+
+
 def unique_symbols(symbols: str) -> str:
     return "".join(dict.fromkeys(symbols))
 
@@ -113,6 +132,10 @@ def _check_range(name: str, value: int, bounds: tuple[int, int]) -> None:
 def validate(config: Config) -> None:
     """Перевіряє параметри, що не залежать від словника."""
     _check_range("Кількість слів", config.words, WORDS_RANGE)
+    _check_range("Мінімум літер у слові", config.word_len_min, WORD_LEN_RANGE)
+    _check_range("Максимум літер у слові", config.word_len_max, WORD_LEN_RANGE)
+    if config.word_len_min > config.word_len_max:
+        raise ConfigError("Мінімум літер у слові більший за максимум.")
     _check_range("Максимальна довжина", config.max_len, MAX_LEN_RANGE)
     _check_range("Мінімум цифр", config.digits_min, DIGITS_RANGE)
     _check_range("Максимум цифр", config.digits_max, DIGITS_RANGE)
@@ -156,11 +179,16 @@ class Generator:
         words = builtin_words() if words is None else normalize(words)
         if not words:
             raise ConfigError("Словник порожній.")
+        self.wordlist_size = len(words)
+        words = tuple(w for w in words if config.word_len_min <= len(w) <= config.word_len_max)
+        if not words:
+            raise ConfigError(f"У словнику немає слів довжиною {word_len_text(config)}.")
         if config.unique_words and len(words) < config.words:
             raise ConfigError(
-                f"У словнику {len(words)} слів, а потрібно {config.words} різних слів."
+                f"Слів довжиною {word_len_text(config)} у словнику лише {len(words)}, "
+                f"а потрібно {config.words} різних."
             )
-        self.wordlist_size = len(words)
+        self.usable_words = len(words)
 
         by_len: dict[int, list[str]] = defaultdict(list)
         for w in words:

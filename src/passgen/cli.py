@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-len", type=int, default=d.max_len, help=f"макс. довжина ({d.max_len})")
     ap.add_argument("--words", type=int, default=d.words, help=f"кількість слів ({d.words})")
     ap.add_argument(
+        "--word-len",
+        type=_range,
+        default=(d.word_len_min, d.word_len_max),
+        metavar="N|MIN-MAX",
+        help="літер у слові: рівно N (5) або діапазон (4-6); за замовчуванням без обмеження",
+    )
+    ap.add_argument(
         "--digits",
         type=_range,
         default=(d.digits_min, d.digits_max),
@@ -78,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--count має бути від 1 до 10000")
     config = Config(
         words=args.words,
+        word_len_min=args.word_len[0],
+        word_len_max=args.word_len[1],
         max_len=args.max_len,
         digits_min=args.digits[0],
         digits_max=args.digits[1],

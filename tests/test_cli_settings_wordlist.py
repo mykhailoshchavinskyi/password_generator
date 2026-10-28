@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -150,3 +151,26 @@ def test_cli_survives_non_utf8_console():
     )
     assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
     assert "Парольна фраза" in out.stdout.decode("utf-8")
+
+
+@pytest.mark.parametrize(("arg", "lo", "hi"), [("5", 5, 5), ("4-6", 4, 6)])
+def test_cli_word_len(capsys, arg, lo, hi):
+    main(["-n", "20", "--plain", "--word-len", arg, "--max-len", "40", "--case", "lower"])
+    for line in capsys.readouterr().out.splitlines():
+        words = re.findall(r"[a-z]+", line)
+        assert len(words) == 3
+        assert all(lo <= len(w) <= hi for w in words)
+
+
+def test_settings_roundtrip_word_len(tmp_path):
+    path = tmp_path / "s.json"
+    s = settings.AppSettings(config=Config(word_len_min=4, word_len_max=4, max_len=30))
+    settings.save(s, path)
+    assert settings.load(path).config.word_len_min == 4
+
+
+def test_old_settings_without_word_len(tmp_path):
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"config": {"words": 4, "max_len": 40}}))
+    cfg = settings.load(path).config
+    assert (cfg.words, cfg.word_len_min, cfg.word_len_max) == (4, 2, 12)

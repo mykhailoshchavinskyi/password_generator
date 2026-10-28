@@ -164,3 +164,51 @@ def test_always_on_top_keeps_window_visible(window, qtbot):
     window.on_top_check.setChecked(False)
     assert not window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
     assert window.isVisible()
+
+
+def test_word_len_exact_mode(window):
+    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
+    window.word_len_min.setValue(5)
+    assert window.word_len_max.isHidden()
+    assert window.word_len_max.value() == 5
+    assert window.settings.config.word_len_min == window.settings.config.word_len_max == 5
+    assert all(len(s.word) == 5 for s in window.phrase.segments)
+
+
+def test_word_len_range_mode(window):
+    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("range"))
+    window.maxlen_slider.setValue(40)
+    window.word_len_min.setValue(4)
+    window.word_len_max.setValue(6)
+    assert not window.word_len_max.isHidden()
+    assert all(4 <= len(s.word) <= 6 for s in window.phrase.segments)
+    # мінімум більший за максимум тягне максимум за собою
+    window.word_len_min.setValue(8)
+    assert window.word_len_max.value() == 8
+
+
+def test_word_len_switch_to_exact_collapses_range(window):
+    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("range"))
+    window.word_len_min.setValue(4)
+    window.word_len_max.setValue(6)
+    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
+    assert window.word_len_max.value() == 4
+    assert window.settings.config.word_len_max == 4
+
+
+def test_word_len_without_matching_words_shows_error(window):
+    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
+    window.word_len_min.setValue(10)
+    assert window.phrase is None
+    assert "немає слів довжиною рівно 10 літер" in window.config_error.text()
+
+
+def test_word_len_mode_restored_from_settings(qtbot):
+    w = MainWindow(AppSettings(config=Config(word_len_min=6, word_len_max=6, max_len=30)))
+    qtbot.addWidget(w)
+    assert w.word_len_mode.currentData() == "exact"
+    assert w.word_len_min.value() == 6
+    w2 = MainWindow(AppSettings())
+    qtbot.addWidget(w2)
+    assert w2.word_len_mode.currentData() == "range"
+    assert (w2.word_len_min.value(), w2.word_len_max.value()) == (2, 12)

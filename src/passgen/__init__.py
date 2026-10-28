@@ -2,7 +2,7 @@
 
 from passgen.core import Case, Config, ConfigError, Generator, Passphrase
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 __author__ = "mykhailoshchavinskyi"
 __email__ = "mykhailo.shchavinskyi@gmail.com"
 __all__ = [

@@ -168,5 +168,68 @@ def test_empty_symbol_set_allowed_without_symbols():
 
 
 def test_unique_words_needs_enough_words():
-    with pytest.raises(ConfigError, match="різних слів"):
+    with pytest.raises(ConfigError, match="потрібно 3 різних"):
         Generator(Config(words=3, max_len=40), ["ab", "cd"])
+
+
+@pytest.mark.parametrize(("lo", "hi"), [(5, 5), (4, 6), (3, 3), (7, 7)])
+def test_word_length_limits(lo, hi):
+    cfg = Config(word_len_min=lo, word_len_max=hi, max_len=40)
+    gen = Generator(cfg, randbelow=seeded(lo * 10 + hi))
+    for _ in range(200):
+        assert all(lo <= len(s.word) <= hi for s in gen.generate().segments)
+
+
+def test_word_length_entropy_counts_only_matching_words():
+    # 2 слова по 2 літери, 1 слово з 3 літер; рівно 2 літери → 2·10·2·3! = 240 фраз
+    cfg = Config(
+        words=1,
+        max_len=10,
+        word_len_min=2,
+        word_len_max=2,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=1,
+        symbols_max=1,
+        symbol_set="!?",
+    )
+    gen = Generator(cfg, SMALL_WORDS)
+    assert gen.usable_words == 2
+    assert gen.wordlist_size == 3
+    assert 2 ** gen.entropy_bits() == pytest.approx(240)
+
+
+def test_default_word_length_keeps_original_behaviour():
+    assert (
+        Generator().entropy_bits()
+        == Generator(Config(word_len_min=3, word_len_max=7)).entropy_bits()
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        (Config(word_len_min=6, word_len_max=4), "Мінімум літер у слові більший"),
+        (Config(word_len_min=1), "Мінімум літер у слові"),
+        (Config(word_len_max=13), "Максимум літер у слові"),
+        (Config(word_len_min=10, word_len_max=12), "немає слів довжиною від 10 до 12 літер"),
+        (Config(word_len_min=8, word_len_max=8), "немає слів довжиною рівно 8 літер"),
+    ],
+)
+def test_invalid_word_length(config, message):
+    with pytest.raises(ConfigError, match=message):
+        Generator(config)
+
+
+def test_letters_plural():
+    from passgen.core import letters
+
+    assert [letters(n) for n in (1, 2, 4, 5, 11, 12, 21)] == [
+        "1 літера",
+        "2 літери",
+        "4 літери",
+        "5 літер",
+        "11 літер",
+        "12 літер",
+        "21 літера",
+    ]
