@@ -46,6 +46,7 @@ from passgen.core import (
 )
 from passgen.gui import theme
 from passgen.gui.clipboard import ClipboardGuard
+from passgen.gui.range_editor import EXACT, RANGE, UPTO, RangeEditor
 from passgen.settings import CLIPBOARD_CLEAR_RANGE, AppSettings
 from passgen.wordlist import WordlistError, builtin_words, load_file
 
@@ -171,16 +172,32 @@ class MainWindow(QMainWindow):
         form.setContentsMargins(0, 0, 0, 0)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
-        self.words_slider, words_row = self._slider_row(*WORDS_RANGE)
+        self.length = RangeEditor(
+            *MAX_LEN_RANGE,
+            modes=(UPTO, EXACT, RANGE),
+            tooltip="«до» — лише верхня межа; «рівно» і «від–до» — кількість слів, "
+            "цифр і символів підбирається автоматично",
+        )
+        form.addRow("Довжина пароля", self.length)
+        self.words_slider, words_row, self._words_value = self._slider_row(*WORDS_RANGE)
         form.addRow("Кількість слів", words_row)
-        form.addRow("Літер у слові", self._word_len_row())
-        self.maxlen_slider, maxlen_row = self._slider_row(*MAX_LEN_RANGE)
-        form.addRow("Максимальна довжина", maxlen_row)
+        self.word_len = RangeEditor(
+            *WORD_LEN_RANGE,
+            modes=(EXACT, RANGE),
+            tooltip="Точна кількість літер у кожному слові або діапазон",
+        )
+        form.addRow("Літер у слові", self.word_len)
 
         self.digits_min, self.digits_max, digits_row = self._range_row(*DIGITS_RANGE)
         form.addRow("Цифр у частині", digits_row)
         self.symbols_min, self.symbols_max, symbols_row = self._range_row(*SYMBOLS_RANGE)
         form.addRow("Символів у частині", symbols_row)
+        self.scatter_check = QCheckBox("Розкидати цифри й символи")
+        self.scatter_check.setToolTip(
+            "Кожна цифра й символ стає у випадкове місце частини, наприклад !Слово5#3.\n"
+            "Без галочки цифри й символи завжди йдуть групами: 53Слово!#"
+        )
+        form.addRow("", self.scatter_check)
 
         self.symbol_set_edit = QLineEdit()
         self.symbol_set_edit.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -234,11 +251,11 @@ class MainWindow(QMainWindow):
         reset.clicked.connect(self.reset_defaults)
         form.addRow("", reset)
 
+        self.length.changed.connect(self._on_config_changed)
+        self.word_len.changed.connect(self._on_config_changed)
+        self.scatter_check.toggled.connect(self._on_config_changed)
         for w in (
             self.words_slider,
-            self.word_len_min,
-            self.word_len_max,
-            self.maxlen_slider,
             self.digits_min,
             self.digits_max,
             self.symbols_min,
@@ -248,11 +265,10 @@ class MainWindow(QMainWindow):
         self.symbol_set_edit.textChanged.connect(self._on_config_changed)
         self.separator_edit.textChanged.connect(self._on_config_changed)
         self.case_combo.currentIndexChanged.connect(self._on_config_changed)
-        self.word_len_mode.currentIndexChanged.connect(self._on_word_len_mode_changed)
         self.clear_spin.valueChanged.connect(self._on_app_option_changed)
         self.on_top_check.toggled.connect(self._on_app_option_changed)
 
-    def _slider_row(self, lo: int, hi: int) -> tuple[QSlider, QWidget]:
+    def _slider_row(self, lo: int, hi: int) -> tuple[QSlider, QWidget, QLabel]:
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(lo, hi)
         value = QLabel()
@@ -265,46 +281,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(slider, 1)
         lay.addWidget(value)
-        return slider, row
-
-    def _word_len_row(self) -> QWidget:
-        """«рівно [5]» або «від [3] до [7]»: точна кількість літер чи діапазон."""
-        self.word_len_mode = QComboBox()
-        self.word_len_mode.addItem("рівно", "exact")
-        self.word_len_mode.addItem("від", "range")
-        self.word_len_mode.setToolTip("Точна кількість літер у кожному слові або діапазон")
-        self.word_len_min, self.word_len_max = QSpinBox(), QSpinBox()
-        for s in (self.word_len_min, self.word_len_max):
-            s.setRange(*WORD_LEN_RANGE)
-        self._word_len_to = QLabel("до")
-        a, b = self.word_len_min, self.word_len_max
-        # у режимі «рівно» максимум завжди дорівнює мінімуму; у «від–до» тягнемо інше поле
-        a.valueChanged.connect(
-            lambda v: b.setValue(v) if v > b.value() or self._word_len_exact() else None
-        )
-        b.valueChanged.connect(lambda v: a.setValue(v) if v < a.value() else None)
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        for w in (self.word_len_mode, a, self._word_len_to, b):
-            lay.addWidget(w)
-        lay.addStretch()
-        return row
-
-    def _word_len_exact(self) -> bool:
-        return self.word_len_mode.currentData() == "exact"
-
-    def _show_word_len_mode(self) -> None:
-        exact = self._word_len_exact()
-        self._word_len_to.setVisible(not exact)
-        self.word_len_max.setVisible(not exact)
-
-    def _on_word_len_mode_changed(self) -> None:
-        self._show_word_len_mode()
-        if self._word_len_exact():
-            # setValue сам викличе _on_config_changed, якщо значення зміниться
-            self.word_len_max.setValue(self.word_len_min.value())
-        self._on_config_changed()
+        return slider, row, value
 
     def _range_row(self, lo: int, hi: int) -> tuple[QSpinBox, QSpinBox, QWidget]:
         a, b = QSpinBox(), QSpinBox()
@@ -356,13 +333,8 @@ class MainWindow(QMainWindow):
         self._loading = True
         c = self.settings.config
         self.words_slider.setValue(c.words)
-        self.word_len_mode.setCurrentIndex(
-            self.word_len_mode.findData("exact" if c.word_len_min == c.word_len_max else "range")
-        )
-        self._show_word_len_mode()
-        self.word_len_max.setValue(WORD_LEN_RANGE[1])
-        self.word_len_min.setValue(c.word_len_min)
-        self.word_len_max.setValue(c.word_len_max)
+        self.word_len.set_values(c.word_len_min, c.word_len_max)
+        self.scatter_check.setChecked(c.scatter)
         self.digits_min.setValue(c.digits_min)
         self.digits_max.setValue(c.digits_max)
         self.digits_min.setValue(c.digits_min)
@@ -375,15 +347,23 @@ class MainWindow(QMainWindow):
         self.clear_spin.setValue(self.settings.clipboard_clear_seconds)
         self.on_top_check.setChecked(self.settings.always_on_top)
         self._loading = False
+        self.length.set_minimum(MAX_LEN_RANGE[0])
+        if c.auto_words or c.min_len > 1:
+            self.length.set_values(c.min_len, c.max_len)
+        else:
+            self.length.set_values(c.min_len, c.max_len, UPTO)
+        self._update_words_auto()
         self._update_maxlen_minimum()
-        self.maxlen_slider.setValue(c.max_len)
 
     def _config_from_widgets(self) -> Config:
         return Config(
             words=self.words_slider.value(),
-            word_len_min=self.word_len_min.value(),
-            word_len_max=self.word_len_max.value(),
-            max_len=self.maxlen_slider.value(),
+            word_len_min=self.word_len.values()[0],
+            word_len_max=self.word_len.values()[1],
+            min_len=self.length.values()[0],
+            max_len=self.length.values()[1],
+            auto_words=self.length.current_mode() != UPTO,
+            scatter=self.scatter_check.isChecked(),
             digits_min=self.digits_min.value(),
             digits_max=self.digits_max.value(),
             symbols_min=self.symbols_min.value(),
@@ -395,17 +375,25 @@ class MainWindow(QMainWindow):
         )
 
     def _update_maxlen_minimum(self) -> None:
-        """Повзунок довжини не дозволяє вибрати значення, менше за мінімально можливе."""
-        probe = replace(self._config_from_widgets(), max_len=MAX_LEN_RANGE[1])
+        """Поле довжини не дозволяє вибрати значення, менше за мінімально можливе."""
+        probe = replace(self._config_from_widgets(), min_len=1, max_len=MAX_LEN_RANGE[1])
         try:
             minimum = Generator(probe, self._words).min_length
         except ConfigError:
             return
-        self.maxlen_slider.setMinimum(min(minimum, MAX_LEN_RANGE[1]))
+        self.length.set_minimum(min(minimum, MAX_LEN_RANGE[1]))
+
+    def _update_words_auto(self) -> None:
+        """У режимах «рівно» і «від–до» кількість слів підбирається автоматично."""
+        auto = self.length.current_mode() != UPTO
+        self.words_slider.setEnabled(not auto)
+        self._words_value.setText("авто" if auto else str(self.words_slider.value()))
+        self.words_slider.setToolTip("Підбирається автоматично під довжину пароля" if auto else "")
 
     def _on_config_changed(self) -> None:
         if self._loading:
             return
+        self._update_words_auto()
         self._update_maxlen_minimum()
         self.regenerate()
 

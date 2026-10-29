@@ -174,3 +174,44 @@ def test_old_settings_without_word_len(tmp_path):
     path.write_text(json.dumps({"config": {"words": 4, "max_len": 40}}))
     cfg = settings.load(path).config
     assert (cfg.words, cfg.word_len_min, cfg.word_len_max) == (4, 2, 12)
+
+
+@pytest.mark.parametrize(("arg", "lo", "hi"), [("20", 20, 20), ("18-24", 18, 24)])
+def test_cli_length(capsys, arg, lo, hi):
+    main(["-n", "30", "--plain", "--length", arg])
+    for line in capsys.readouterr().out.splitlines():
+        assert lo <= len(line) <= hi
+
+
+def test_cli_length_with_fixed_words(capsys):
+    main(["-n", "20", "--plain", "--length", "24", "--words", "3", "--case", "lower"])
+    for line in capsys.readouterr().out.splitlines():
+        assert len(line) == 24
+        assert len(re.findall(r"[a-z]+", line)) == 3
+
+
+def test_cli_impossible_length(capsys):
+    with pytest.raises(SystemExit):
+        main(["--length", "13", "--word-len", "7", "--digits", "3", "--symbols", "2"])
+    assert "Найближчі можливі довжини" in capsys.readouterr().err
+
+
+def test_cli_grouped(capsys):
+    main(["-n", "50", "--plain", "--grouped", "--case", "lower", "--sep", "_"])
+    for line in capsys.readouterr().out.splitlines():
+        for part in line.split("_"):
+            assert len(re.findall(r"[a-z]+|\d+|[^a-z\d]+", part)) == 3
+
+
+def test_settings_roundtrip_length_and_scatter(tmp_path):
+    path = tmp_path / "s.json"
+    cfg = Config(min_len=20, max_len=24, auto_words=True, scatter=False)
+    settings.save(settings.AppSettings(config=cfg), path)
+    assert settings.load(path).config == cfg
+
+
+def test_old_settings_get_new_defaults(tmp_path):
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"config": {"words": 3, "max_len": 26}}))
+    cfg = settings.load(path).config
+    assert (cfg.min_len, cfg.auto_words, cfg.scatter) == (1, False, True)

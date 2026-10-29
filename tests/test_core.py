@@ -27,9 +27,18 @@ def split_parts(text):
     return re.findall(r"[A-Za-z]+|\d+|[^A-Za-z\d]+", text)
 
 
+def kinds(seg):
+    """Слово, усі цифри й усі символи частини, незалежно від того, розкидані вони чи ні."""
+    out = {"word": "", "digits": "", "symbols": ""}
+    for kind, text in seg.parts:
+        out[kind] += text
+    return out
+
+
+@pytest.mark.parametrize("scatter", [False, True])
 @pytest.mark.parametrize("seed", range(5))
-def test_default_phrase_follows_rules(seed):
-    gen = Generator(randbelow=seeded(seed))
+def test_default_phrase_follows_rules(seed, scatter):
+    gen = Generator(Config(scatter=scatter), randbelow=seeded(seed))
     for _ in range(200):
         p = gen.generate()
         assert len(p.text) <= 26
@@ -37,12 +46,14 @@ def test_default_phrase_follows_rules(seed):
         assert len({s.word for s in p.segments}) == 3
         assert p.text == "_".join(s.text for s in p.segments)
         for seg in p.segments:
-            kinds = dict(seg.parts)
-            assert kinds["word"] == seg.word.capitalize()
-            assert 2 <= len(kinds["digits"]) <= 3 and kinds["digits"].isdigit()
-            assert 1 <= len(kinds["symbols"]) <= 2
-            assert set(kinds["symbols"]) <= set("!@#$&?")
-            assert len(split_parts(seg.text)) == 3
+            k = kinds(seg)
+            assert k["word"] == seg.word.capitalize()
+            assert seg.word.capitalize() in seg.text
+            assert 2 <= len(k["digits"]) <= 3 and k["digits"].isdigit()
+            assert 1 <= len(k["symbols"]) <= 2
+            assert set(k["symbols"]) <= set("!@#$&?")
+            if not scatter:
+                assert len(split_parts(seg.text)) == 3
 
 
 def test_tokens_rebuild_text():
@@ -58,14 +69,18 @@ def test_entropy_matches_original_script(words_count, max_len):
     ref.WORDS_COUNT = words_count
     if max_len < words_count * 6 + words_count - 1:
         pytest.skip("неможлива комбінація для оригіналу")
-    gen = Generator(Config(words=words_count, max_len=max_len), words=ref.WORDS)
+    # оригінал ставить цифри й символи лише групами
+    cfg = Config(words=words_count, max_len=max_len, scatter=False)
+    gen = Generator(cfg, words=ref.WORDS)
     assert gen.entropy_bits() == pytest.approx(ref.entropy_bits(max_len), abs=1e-9)
 
 
 def test_default_entropy_with_builtin_wordlist():
     gen = Generator()
     assert gen.wordlist_size == 3495
-    assert 81 < gen.entropy_bits() < 83
+    # розкидання додає розташувань: ~89.6 біт проти ~81.8 для груп
+    assert 89 < gen.entropy_bits() < 90.5
+    assert 81 < Generator(Config(scatter=False)).entropy_bits() < 83
 
 
 def test_uniform_over_all_phrases():
@@ -233,3 +248,196 @@ def test_letters_plural():
         "12 літер",
         "21 літера",
     ]
+
+
+# ---------- розкидання цифр і символів ----------
+
+
+def test_arrangements_counts():
+    from passgen.core import arrangements
+
+    assert arrangements(1, 1, scatter=False) == arrangements(1, 1, scatter=True) == 6
+    assert arrangements(2, 1, scatter=False) == 6
+    assert arrangements(2, 1, scatter=True) == 12  # 4! / (2!·1!)
+    assert arrangements(2, 2, scatter=True) == 30  # 5! / (2!·2!)
+    assert arrangements(0, 2, scatter=True) == 3
+    assert arrangements(0, 2, scatter=False) == 2
+
+
+def test_scatter_uniform_and_splits_symbols():
+    # слово «ab» і 2 символи з «!?»: 3 розташування · 4 набори символів = 12 фраз
+    cfg = Config(
+        words=1,
+        max_len=10,
+        digits_min=0,
+        digits_max=0,
+        symbols_min=2,
+        symbols_max=2,
+        symbol_set="!?",
+    )
+    gen = Generator(cfg, ["ab"], randbelow=seeded(11))
+    assert 2 ** gen.entropy_bits() == pytest.approx(12)
+    n = 12_000
+    counts = Counter(gen.generate().text for _ in range(n))
+    assert len(counts) == 12
+    assert "!Ab?" in counts and "?Ab!" in counts  # символи по обидва боки слова
+    for c in counts.values():
+        assert c / n == pytest.approx(1 / 12, abs=0.015)
+
+
+def test_scatter_mixes_digits_and_symbols():
+    # 2 цифри й 1 символ: 4!/(2!·1!) = 12 розташувань · 100 · 2 = 2400 фраз
+    cfg = Config(
+        words=1,
+        max_len=10,
+        digits_min=2,
+        digits_max=2,
+        symbols_min=1,
+        symbols_max=1,
+        symbol_set="!?",
+    )
+    gen = Generator(cfg, ["ab"], randbelow=seeded(12))
+    assert 2 ** gen.entropy_bits() == pytest.approx(2400)
+    shapes = Counter(
+        re.sub(r"\d", "9", re.sub(r"[!?]", "!", gen.generate().text)) for _ in range(6000)
+    )
+    assert len(shapes) == 12
+    assert "9Ab!9" in shapes and "9!Ab9" in shapes  # цифри розділено
+
+
+def test_grouped_mode_keeps_blocks():
+    cfg = Config(scatter=False, digits_min=2, digits_max=3, max_len=40)
+    gen = Generator(cfg, randbelow=seeded(13))
+    for _ in range(200):
+        for seg in gen.generate().segments:
+            assert len(split_parts(seg.text)) == 3
+
+
+# ---------- довжина пароля: рівно / від–до, автоматична кількість слів ----------
+
+
+def test_exact_length_count_is_exact():
+    # частини 4 («ab»+1+1) або 5 («cde»+1+1) символів; рівно 8 → лише 2 частини по 4
+    cfg = Config(
+        min_len=8,
+        max_len=8,
+        auto_words=True,
+        separator="",
+        unique_words=False,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=1,
+        symbols_max=1,
+        symbol_set="!",
+    )
+    gen = Generator(cfg, ["ab", "cde"], randbelow=seeded(14))
+    assert 2 ** gen.entropy_bits() == pytest.approx((1 * 10 * 1 * 6) ** 2)
+    assert all(len(gen.generate()) == 8 for _ in range(300))
+
+
+def test_length_range_is_uniform():
+    # від 8 до 9: 4+4 (3600 фраз) і 4+5, 5+4 (по 3600) → довжина 9 удвічі частіша
+    cfg = Config(
+        min_len=8,
+        max_len=9,
+        auto_words=True,
+        separator="",
+        unique_words=False,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=1,
+        symbols_max=1,
+        symbol_set="!",
+    )
+    gen = Generator(cfg, ["ab", "cde"], randbelow=seeded(15))
+    assert 2 ** gen.entropy_bits() == pytest.approx(3 * 3600)
+    n = 9000
+    lengths = Counter(len(gen.generate()) for _ in range(n))
+    assert set(lengths) == {8, 9}
+    assert lengths[9] / n == pytest.approx(2 / 3, abs=0.02)
+
+
+@pytest.mark.parametrize(("length", "words"), [(12, {1}), (20, {2, 3}), (33, {3, 4}), (40, {4, 5})])
+def test_exact_length_with_builtin_words(length, words):
+    # кількість слів підбирається під довжину; при рівномірному виборі серед усіх фраз
+    # переважає та кількість слів, що дає найбільше варіантів
+    gen = Generator(
+        Config(min_len=length, max_len=length, auto_words=True), randbelow=seeded(length)
+    )
+    seen = set()
+    for _ in range(300):
+        p = gen.generate()
+        assert len(p) == length
+        seen.add(len(p.segments))
+    assert seen <= words
+
+
+def test_fixed_words_with_exact_length():
+    gen = Generator(Config(words=3, min_len=24, max_len=24), randbelow=seeded(16))
+    for _ in range(200):
+        p = gen.generate()
+        assert len(p) == 24 and len(p.segments) == 3
+
+
+def test_max_only_mode_matches_previous_behaviour():
+    # «до N» (min_len=1) — та сама кількість фраз, що й раніше
+    ref = load_reference()
+    ref.WORDS_COUNT = 3
+    gen = Generator(Config(max_len=26, scatter=False), words=ref.WORDS)
+    assert gen.entropy_bits() == pytest.approx(ref.entropy_bits(26), abs=1e-9)
+
+
+def test_impossible_exact_length_suggests_closest():
+    cfg = Config(
+        min_len=13,
+        max_len=13,
+        auto_words=True,
+        word_len_min=7,
+        word_len_max=7,
+        digits_min=3,
+        digits_max=3,
+        symbols_min=2,
+        symbols_max=2,
+    )
+    with pytest.raises(ConfigError, match=r"рівно 13 символів .*Найближчі можливі довжини: 12, 25"):
+        Generator(cfg)
+
+
+def test_min_len_above_max_len():
+    with pytest.raises(ConfigError, match="Мінімальна довжина пароля більша"):
+        Generator(Config(min_len=30, max_len=20))
+
+
+def test_auto_words_respects_unique_words():
+    cfg = Config(
+        min_len=8,
+        max_len=30,
+        auto_words=True,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=1,
+        symbols_max=1,
+        symbol_set="!",
+    )
+    gen = Generator(cfg, ["ab", "cd"], randbelow=seeded(17))
+    assert gen.word_counts == (1, 2)
+    for _ in range(100):
+        p = gen.generate()
+        assert len({s.word for s in p.segments}) == len(p.segments)
+
+
+def test_length_text():
+    from passgen.core import length_text
+
+    assert length_text(Config(min_len=20, max_len=20)) == "рівно 20 символів"
+    assert length_text(Config(min_len=18, max_len=24)) == "від 18 до 24 символів"
+    assert length_text(Config(max_len=22)) == "до 22 символів"
+    assert length_text(Config(min_len=21, max_len=21)) == "рівно 21 символ"
+    assert length_text(Config(max_len=21)) == "до 21 символу"
+
+
+def test_word_len_text_genitive():
+    from passgen.core import word_len_text
+
+    assert word_len_text(Config(word_len_min=2, word_len_max=4)) == "від 2 до 4 літер"
+    assert word_len_text(Config(word_len_min=3, word_len_max=3)) == "рівно 3 літери"

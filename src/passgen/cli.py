@@ -40,7 +40,16 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="passgen-cli", description="Генератор парольних фраз")
     ap.add_argument("-n", "--count", type=int, default=10, help="кількість фраз (10)")
     ap.add_argument("--max-len", type=int, default=d.max_len, help=f"макс. довжина ({d.max_len})")
-    ap.add_argument("--words", type=int, default=d.words, help=f"кількість слів ({d.words})")
+    ap.add_argument(
+        "--length",
+        type=_range,
+        metavar="N|MIN-MAX",
+        help="довжина пароля: рівно N (20) або діапазон (18-24); кількість слів, "
+        "цифр і символів підбирається автоматично, якщо не задано --words",
+    )
+    ap.add_argument(
+        "--words", type=int, help=f"кількість слів ({d.words}; з --length — автоматично)"
+    )
     ap.add_argument(
         "--word-len",
         type=_range,
@@ -72,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=d.case.value,
         help="регістр слів (capitalize)",
     )
+    ap.add_argument(
+        "--grouped",
+        action="store_true",
+        help="цифри й символи лише групами, як у початковому passgen.py",
+    )
     ap.add_argument("--wordlist", metavar="FILE", help="власний словник (.txt)")
     ap.add_argument("--plain", action="store_true", help="лише фрази, без таблиці")
     return ap
@@ -83,11 +97,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if not 1 <= args.count <= 10_000:
         ap.error("--count має бути від 1 до 10000")
+    d = Config()
+    min_len, max_len = args.length if args.length else (d.min_len, args.max_len)
     config = Config(
-        words=args.words,
+        words=args.words if args.words is not None else d.words,
+        auto_words=bool(args.length) and args.words is None,
+        min_len=min_len,
         word_len_min=args.word_len[0],
         word_len_max=args.word_len[1],
-        max_len=args.max_len,
+        max_len=max_len,
         digits_min=args.digits[0],
         digits_max=args.digits[1],
         symbols_min=args.symbols[0],
@@ -95,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         symbol_set=args.symbol_set,
         separator=args.sep,
         case=Case(args.case),
+        scatter=not args.grouped,
     )
     try:
         words = load_file(args.wordlist) if args.wordlist else None

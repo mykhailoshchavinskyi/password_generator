@@ -10,6 +10,10 @@ from passgen.gui.main_window import MainWindow  # noqa: E402
 from passgen.settings import AppSettings  # noqa: E402
 
 
+def set_mode(editor, mode):
+    editor.mode.setCurrentIndex(editor.mode.findData(mode))
+
+
 @pytest.fixture
 def window(qtbot):
     saved = []
@@ -38,7 +42,7 @@ def test_new_button_changes_phrase(window, qtbot):
 
 def test_settings_change_regenerates_and_saves(window, qtbot):
     window.words_slider.setValue(4)
-    window.maxlen_slider.setValue(40)
+    window.length.high.setValue(40)
     window.separator_edit.setText("-")
     window.case_combo.setCurrentIndex(window.case_combo.findData(Case.UPPER.value))
     assert len(window.phrase.segments) == 4
@@ -51,8 +55,8 @@ def test_settings_change_regenerates_and_saves(window, qtbot):
 def test_maxlen_minimum_follows_words(window):
     window.words_slider.setValue(5)
     # 5 · (3 + 2 + 1) + 4 роздільники = 34
-    assert window.maxlen_slider.minimum() == 34
-    assert window.maxlen_slider.value() >= 34
+    assert window.length.high.minimum() == 34
+    assert window.length.high.value() >= 34
     assert window.phrase is not None
 
 
@@ -102,7 +106,9 @@ def test_reset_defaults(window):
     window.clear_spin.setValue(0)
     window.reset_defaults()
     assert window.words_slider.value() == 3
-    assert window.maxlen_slider.value() == 26
+    assert window.length.values() == (1, 26)
+    assert window.length.current_mode() == "upto"
+    assert window.scatter_check.isChecked()
     assert window.settings.clipboard_clear_seconds == 30
 
 
@@ -119,7 +125,7 @@ def test_restores_saved_settings(qtbot):
     w = MainWindow(s)
     qtbot.addWidget(w)
     assert w.words_slider.value() == 2
-    assert w.maxlen_slider.value() == 20
+    assert w.length.values() == (1, 20)
     assert w.phrase.text.count(".") == 1
     assert "вимкнено" in w.clipboard_note.text()
 
@@ -167,38 +173,38 @@ def test_always_on_top_keeps_window_visible(window, qtbot):
 
 
 def test_word_len_exact_mode(window):
-    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
-    window.word_len_min.setValue(5)
-    assert window.word_len_max.isHidden()
-    assert window.word_len_max.value() == 5
+    set_mode(window.word_len, "exact")
+    window.word_len.low.setValue(5)
+    assert window.word_len.high.isHidden()
+    assert window.word_len.high.value() == 5
     assert window.settings.config.word_len_min == window.settings.config.word_len_max == 5
     assert all(len(s.word) == 5 for s in window.phrase.segments)
 
 
 def test_word_len_range_mode(window):
-    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("range"))
-    window.maxlen_slider.setValue(40)
-    window.word_len_min.setValue(4)
-    window.word_len_max.setValue(6)
-    assert not window.word_len_max.isHidden()
+    set_mode(window.word_len, "range")
+    window.length.high.setValue(40)
+    window.word_len.low.setValue(4)
+    window.word_len.high.setValue(6)
+    assert not window.word_len.high.isHidden()
     assert all(4 <= len(s.word) <= 6 for s in window.phrase.segments)
     # мінімум більший за максимум тягне максимум за собою
-    window.word_len_min.setValue(8)
-    assert window.word_len_max.value() == 8
+    window.word_len.low.setValue(8)
+    assert window.word_len.high.value() == 8
 
 
 def test_word_len_switch_to_exact_collapses_range(window):
-    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("range"))
-    window.word_len_min.setValue(4)
-    window.word_len_max.setValue(6)
-    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
-    assert window.word_len_max.value() == 4
+    set_mode(window.word_len, "range")
+    window.word_len.low.setValue(4)
+    window.word_len.high.setValue(6)
+    set_mode(window.word_len, "exact")
+    assert window.word_len.high.value() == 4
     assert window.settings.config.word_len_max == 4
 
 
 def test_word_len_without_matching_words_shows_error(window):
-    window.word_len_mode.setCurrentIndex(window.word_len_mode.findData("exact"))
-    window.word_len_min.setValue(10)
+    set_mode(window.word_len, "exact")
+    window.word_len.low.setValue(10)
     assert window.phrase is None
     assert "немає слів довжиною рівно 10 літер" in window.config_error.text()
 
@@ -206,9 +212,91 @@ def test_word_len_without_matching_words_shows_error(window):
 def test_word_len_mode_restored_from_settings(qtbot):
     w = MainWindow(AppSettings(config=Config(word_len_min=6, word_len_max=6, max_len=30)))
     qtbot.addWidget(w)
-    assert w.word_len_mode.currentData() == "exact"
-    assert w.word_len_min.value() == 6
+    assert w.word_len.current_mode() == "exact"
+    assert w.word_len.values() == (6, 6)
     w2 = MainWindow(AppSettings())
     qtbot.addWidget(w2)
-    assert w2.word_len_mode.currentData() == "range"
-    assert (w2.word_len_min.value(), w2.word_len_max.value()) == (2, 12)
+    assert w2.word_len.current_mode() == "range"
+    assert w2.word_len.values() == (2, 12)
+
+
+# ---------- довжина пароля і розкидання ----------
+
+
+def test_length_exact_mode_picks_words_automatically(window):
+    window.length.high.setValue(30)
+    set_mode(window.length, "exact")  # «рівно» бере значення з поля «до»
+    assert window.length.values() == (30, 30)
+    assert window.length.high.isHidden()
+    assert not window.words_slider.isEnabled()
+    assert window._words_value.text() == "авто"
+    assert window.settings.config.auto_words
+    assert len(window.phrase) == 30
+    for _ in range(20):
+        window.regenerate()
+        assert len(window.phrase) == 30
+
+
+def test_length_range_mode(window):
+    set_mode(window.length, "range")
+    window.length.low.setValue(18)
+    window.length.high.setValue(22)
+    assert window.length.values() == (18, 22)
+    for _ in range(20):
+        window.regenerate()
+        assert 18 <= len(window.phrase) <= 22
+    cfg = window.settings.config
+    assert (cfg.min_len, cfg.max_len, cfg.auto_words) == (18, 22, True)
+
+
+def test_back_to_upto_mode_restores_word_slider(window):
+    set_mode(window.length, "exact")
+    set_mode(window.length, "upto")
+    assert window.words_slider.isEnabled()
+    assert window._words_value.text() == str(window.words_slider.value())
+    assert window.settings.config.auto_words is False
+    assert window.settings.config.min_len == 1
+
+
+def test_impossible_exact_length_shows_hint(window):
+    set_mode(window.word_len, "exact")
+    window.word_len.low.setValue(7)
+    window.digits_min.setValue(3)
+    window.digits_max.setValue(3)
+    window.symbols_min.setValue(2)
+    window.symbols_max.setValue(2)
+    set_mode(window.length, "exact")
+    window.length.low.setValue(13)
+    assert window.phrase is None
+    assert "Найближчі можливі довжини: 12, 25" in window.config_error.text()
+
+
+def test_length_mode_restored_from_settings(qtbot):
+    w = MainWindow(AppSettings(config=Config(min_len=24, max_len=24, auto_words=True)))
+    qtbot.addWidget(w)
+    assert w.length.current_mode() == "exact"
+    assert w.length.values() == (24, 24)
+    assert not w.words_slider.isEnabled()
+    assert len(w.phrase) == 24
+    w2 = MainWindow(AppSettings(config=Config(min_len=18, max_len=24, auto_words=True)))
+    qtbot.addWidget(w2)
+    assert w2.length.current_mode() == "range"
+    assert w2.length.values() == (18, 24)
+
+
+def test_scatter_checkbox(window):
+    assert window.settings.config.scatter
+    window.scatter_check.setChecked(False)
+    assert window.settings.config.scatter is False
+    window.scatter_check.setChecked(True)
+    assert window.settings.config.scatter is True
+
+
+def test_reset_defaults_restores_length_mode(window):
+    set_mode(window.length, "exact")
+    window.scatter_check.setChecked(False)
+    window.reset_defaults()
+    assert window.length.current_mode() == "upto"
+    assert window.length.values() == (1, 26)
+    assert window.words_slider.isEnabled()
+    assert window.scatter_check.isChecked()
