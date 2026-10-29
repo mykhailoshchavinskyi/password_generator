@@ -314,3 +314,18 @@ def test_random_case_and_leet_in_gui(window, qtbot):
     qtbot.addWidget(w2)
     assert w2.leet_check.isChecked()
     assert w2.case_combo.currentData() == Case.RANDOM.value
+
+
+def test_avoid_similar_checkbox(window, qtbot):
+    window.similar_check.setChecked(True)
+    assert window.settings.config.avoid_similar
+    for _ in range(30):
+        window.regenerate()
+        text = window.phrase.text
+        assert not set(text) & set("01|") and not ("I" in text and "l" in text)
+    window.separator_edit.setText("l")
+    assert window.phrase is None
+    assert "Роздільник містить схожі символи" in window.config_error.text()
+    w2 = MainWindow(AppSettings(config=window.settings.config))
+    qtbot.addWidget(w2)
+    assert w2.similar_check.isChecked()

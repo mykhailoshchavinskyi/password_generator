@@ -58,6 +58,19 @@ class Case(str, Enum):
 # Заміни взаємно однозначні, тому різні варіанти слова дають різні рядки.
 LEET = {"a": "@", "e": "3", "i": "1", "o": "0", "s": "$", "t": "7"}
 
+# Схожі символи: 0 / O / o та 1 / l / I / |. У режимі avoid_similar вилучаються цифри 0 і 1,
+# символ | і leet-заміни на них, а велика I не з'являється поруч із малою l — тоді жодна
+# пара з цих груп не може зустрітися в паролі одночасно.
+SIMILAR_DIGITS = "01"
+SIMILAR_SYMBOLS = "|"
+SIMILAR_ALL = "0Oo1lI|"
+
+
+def leet_map(avoid_similar: bool) -> dict[str, str]:
+    if not avoid_similar:
+        return LEET
+    return {k: v for k, v in LEET.items() if v not in SIMILAR_DIGITS}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -83,6 +96,8 @@ class Config:
     scatter: bool = True
     # True: внутрішні літери з LEET незалежно, з імовірністю ½, замінюються знаками
     leet: bool = False
+    # True: без схожих символів (0 і O, 1 і l, I і l, |) — див. SIMILAR_ALL
+    avoid_similar: bool = False
 
 
 @dataclass(frozen=True)
@@ -212,23 +227,33 @@ def validate(config: Config) -> None:
         raise ConfigError(f"Роздільник може мати не більше {SEPARATOR_MAX} символів.")
     if any(not ch.isprintable() or ch.isspace() for ch in config.separator):
         raise ConfigError("Роздільник не може містити пробіли чи службові символи.")
+    if config.avoid_similar and set(config.separator) & set(SIMILAR_ALL):
+        raise ConfigError(
+            f"Роздільник містить схожі символи ({' '.join(SIMILAR_ALL)}). "
+            "Виберіть інший роздільник або вимкніть «Без схожих символів»."
+        )
 
 
-def leet_positions(word: str) -> list[int]:
-    """Позиції внутрішніх літер слова, які можна замінити (див. LEET)."""
-    return [i for i in range(1, len(word) - 1) if word[i] in LEET]
+def leet_positions(word: str, mapping: dict[str, str] = LEET) -> list[int]:
+    """Позиції внутрішніх літер слова, які можна замінити."""
+    return [i for i in range(1, len(word) - 1) if word[i] in mapping]
 
 
-def spellings(word: str, case: Case, leet: bool) -> int:
+def capital_positions(word: str, avoid_similar: bool = False) -> list[int]:
+    """Де може стояти велика літера в режимі RANDOM (без «I», якщо уникаємо схожих)."""
+    return [i for i, c in enumerate(word) if not (avoid_similar and c == "i")]
+
+
+def spellings(word: str, case: Case, leet: bool, avoid_similar: bool = False) -> int:
     """Скільки різних написань дає слово з цим регістром і leet-заміною.
 
     Велика літера (у режимі RANDOM) не замінюється, тож якщо вона стоїть на місці,
     придатному для заміни, варіантів leet на один біт менше.
     """
-    m = len(leet_positions(word)) if leet else 0
+    subs = leet_positions(word, leet_map(avoid_similar)) if leet else []
     if case is Case.RANDOM:
-        return (len(word) - m) * 2**m + m * 2 ** max(m - 1, 0)
-    return 2**m
+        return sum(2 ** (len(subs) - (p in subs)) for p in capital_positions(word, avoid_similar))
+    return 2 ** len(subs)
 
 
 def arrangements(nd: int, ns: int, scatter: bool) -> int:
@@ -258,12 +283,24 @@ class Generator:
         validate(config)
         self._randbelow = randbelow
         self._symbols = unique_symbols(config.symbol_set)
+        self._digits = DIGITS
+        self._leet = leet_map(config.avoid_similar)
+        if config.avoid_similar:
+            self._digits = "".join(d for d in DIGITS if d not in SIMILAR_DIGITS)
+            self._symbols = "".join(c for c in self._symbols if c not in SIMILAR_SYMBOLS)
+            if config.symbols_max > 0 and not self._symbols:
+                raise ConfigError(
+                    "Без схожих символів набір спецсимволів порожній. Додайте інші символи."
+                )
 
         words = builtin_words() if words is None else normalize(words)
         if not words:
             raise ConfigError("Словник порожній.")
         self.wordlist_size = len(words)
         words = tuple(w for w in words if config.word_len_min <= len(w) <= config.word_len_max)
+        if config.avoid_similar and config.case is Case.CAPITALIZE:
+            # «Ivy» поруч із малою «l» в інших словах — саме та плутанина I/l
+            words = tuple(w for w in words if w[0] != "i")
         if not words:
             raise ConfigError(f"У словнику немає слів довжиною {word_len_text(config)}.")
         self.word_counts = (
@@ -288,7 +325,7 @@ class Generator:
         # кожне слово рахується стільки разів, скільки має різних написань,
         # і вибирається з такою ж вагою — тож усі написання рівноймовірні
         self._spellings = {
-            n: [spellings(w, config.case, config.leet) for w in ws]
+            n: [spellings(w, config.case, config.leet, config.avoid_similar) for w in ws]
             for n, ws in self._by_len.items()
         }
 
@@ -297,7 +334,9 @@ class Generator:
         for n in self._by_len:
             for nd in range(config.digits_min, config.digits_max + 1):
                 for ns in range(config.symbols_min, config.symbols_max + 1):
-                    count = sum(self._spellings[n]) * len(DIGITS) ** nd * len(self._symbols) ** ns
+                    count = (
+                        sum(self._spellings[n]) * len(self._digits) ** nd * len(self._symbols) ** ns
+                    )
                     if count == 0:
                         continue
                     orders = arrangements(nd, ns, config.scatter)
@@ -398,7 +437,7 @@ class Generator:
         )
         word = self._weighted_choice(list(zip(self._by_len[n], self._spellings[n], strict=True)))
         written = self._spell(word)
-        digits = [self._choice(DIGITS) for _ in range(nd)]
+        digits = [self._choice(self._digits) for _ in range(nd)]
         symbols = [self._choice(self._symbols) for _ in range(ns)]
         if self.config.scatter:
             # кожна цифра й символ — окремий елемент; рівномірна перестановка всіх
@@ -417,17 +456,17 @@ class Generator:
     def _spell(self, word: str) -> str:
         """Рівномірно вибране написання слова серед spellings(word) варіантів."""
         cfg = self.config
-        subs = leet_positions(word) if cfg.leet else []
+        subs = leet_positions(word, self._leet) if cfg.leet else []
         chars = list(cfg.case.apply(word))
         if cfg.case is Case.RANDOM:
             # позиція великої літери з вагою 2^(кількість решти замін)
-            weights = [2 ** (len(subs) - (i in subs)) for i in range(len(word))]
-            cap = self._weighted_choice(list(zip(range(len(word)), weights, strict=True)))
+            caps = capital_positions(word, cfg.avoid_similar)
+            cap = self._weighted_choice([(i, 2 ** (len(subs) - (i in subs))) for i in caps])
             chars[cap] = chars[cap].upper()
             subs = [i for i in subs if i != cap]
         for i in subs:
             if self._randbelow(2):
-                chars[i] = LEET[word[i]]
+                chars[i] = self._leet[word[i]]
         return "".join(chars)
 
     def generate(self) -> Passphrase:

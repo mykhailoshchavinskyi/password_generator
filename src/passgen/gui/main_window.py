@@ -229,6 +229,13 @@ class MainWindow(QMainWindow):
             "наприклад Bl@nk3t.\nПерша й остання літери слова не змінюються."
         )
         form.addRow("", self.leet_check)
+        self.similar_check = QCheckBox("Без схожих символів (як-от 0 і O)")
+        self.similar_check.setToolTip(
+            "Цифри нуль і одиниця та символ «|» не використовуються,\n"
+            "а велика «i» не з'являється там, де може бути мала «L».\n"
+            "Leet-заміни o→0 та i→1 теж вимикаються. Пароль легше прочитати й передрукувати."
+        )
+        form.addRow("", self.similar_check)
 
         self.wordlist_label = QLabel()
         self.wordlist_label.setWordWrap(True)
@@ -270,6 +277,7 @@ class MainWindow(QMainWindow):
         self.word_len.changed.connect(self._on_config_changed)
         self.scatter_check.toggled.connect(self._on_config_changed)
         self.leet_check.toggled.connect(self._on_config_changed)
+        self.similar_check.toggled.connect(self._on_config_changed)
         for w in (
             self.words_slider,
             self.digits_min,
@@ -352,6 +360,7 @@ class MainWindow(QMainWindow):
         self.word_len.set_values(c.word_len_min, c.word_len_max)
         self.scatter_check.setChecked(c.scatter)
         self.leet_check.setChecked(c.leet)
+        self.similar_check.setChecked(c.avoid_similar)
         self.digits_min.setValue(c.digits_min)
         self.digits_max.setValue(c.digits_max)
         self.digits_min.setValue(c.digits_min)
@@ -382,6 +391,7 @@ class MainWindow(QMainWindow):
             auto_words=self.length.current_mode() != UPTO,
             scatter=self.scatter_check.isChecked(),
             leet=self.leet_check.isChecked(),
+            avoid_similar=self.similar_check.isChecked(),
             digits_min=self.digits_min.value(),
             digits_max=self.digits_max.value(),
             symbols_min=self.symbols_min.value(),

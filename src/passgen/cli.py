@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="leet-заміни всередині слів: a e i o s t → @ 3 1 0 $ 7",
     )
+    ap.add_argument(
+        "--no-similar",
+        action="store_true",
+        help="без схожих символів: 0 і O, 1 і l, I і l (без цифр 0, 1 і символу |)",
+    )
     ap.add_argument("--wordlist", metavar="FILE", help="власний словник (.txt)")
     ap.add_argument("--plain", action="store_true", help="лише фрази, без таблиці")
     return ap
@@ -120,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         case=Case(args.case),
         scatter=not args.grouped,
         leet=args.leet,
+        avoid_similar=args.no_similar,
     )
     try:
         words = load_file(args.wordlist) if args.wordlist else None

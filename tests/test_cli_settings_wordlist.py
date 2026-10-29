@@ -232,3 +232,16 @@ def test_settings_roundtrip_case_random_leet(tmp_path):
     cfg = Config(case=Case.RANDOM, leet=True)
     settings.save(settings.AppSettings(config=cfg), path)
     assert settings.load(path).config == cfg
+
+
+def test_cli_no_similar(capsys):
+    main(["-n", "50", "--plain", "--no-similar", "--case", "random", "--leet"])
+    for line in capsys.readouterr().out.splitlines():
+        assert not set(line) & set("01|") and not ("I" in line and "l" in line)
+
+
+def test_settings_roundtrip_avoid_similar(tmp_path):
+    path = tmp_path / "s.json"
+    cfg = Config(avoid_similar=True)
+    settings.save(settings.AppSettings(config=cfg), path)
+    assert settings.load(path).config == cfg

@@ -544,3 +544,85 @@ def test_random_case_and_leet_add_entropy():
     base = Generator().entropy_bits()
     both = Generator(Config(case=Case.RANDOM, leet=True)).entropy_bits()
     assert both - base > 6
+
+
+# ---------- без схожих символів ----------
+
+
+def no_similar(text):
+    return not set(text) & set("01|") and not ("I" in text and "l" in text)
+
+
+@pytest.mark.parametrize("case", list(Case))
+@pytest.mark.parametrize("leet", [False, True])
+def test_avoid_similar_never_mixes_lookalikes(case, leet):
+    cfg = Config(case=case, leet=leet, avoid_similar=True, symbol_set="!@#$|", max_len=40)
+    gen = Generator(cfg, randbelow=seeded(31))
+    for _ in range(300):
+        text = gen.generate().text
+        assert no_similar(text), text
+
+
+def test_without_option_lookalikes_do_appear():
+    gen = Generator(Config(max_len=40), randbelow=seeded(32))
+    texts = "".join(gen.generate().text for _ in range(300))
+    assert "0" in texts and "1" in texts
+
+
+def test_avoid_similar_spellings():
+    from passgen.core import spellings
+
+    # «silo»: внутрішні i, l; leet i→1 вилучено, велика не на «i» → s, l, o
+    assert spellings("silo", Case.RANDOM, leet=True, avoid_similar=True) == 3
+    assert spellings("silo", Case.RANDOM, leet=True, avoid_similar=False) == 7
+
+
+def test_avoid_similar_is_exact_and_uniform():
+    # 3 написання · 8 цифр · 2 розташування = 48 фраз
+    cfg = Config(
+        words=1,
+        max_len=10,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=0,
+        symbols_max=0,
+        symbol_set="",
+        case=Case.RANDOM,
+        leet=True,
+        avoid_similar=True,
+    )
+    gen = Generator(cfg, ["silo"], randbelow=seeded(33))
+    assert 2 ** gen.entropy_bits() == pytest.approx(48)
+    n = 9600
+    counts = Counter(gen.generate().text for _ in range(n))
+    assert len(counts) == 48
+    assert all(no_similar(t) for t in counts)
+    for c in counts.values():
+        assert c / n == pytest.approx(1 / 48, abs=0.012)
+
+
+def test_avoid_similar_drops_words_starting_with_i_only_when_capitalized():
+    words = ["into", "lit", "ink"]
+    cap = Generator(Config(words=1, max_len=12, avoid_similar=True), words)
+    low = Generator(Config(words=1, max_len=12, avoid_similar=True, case=Case.LOWER), words)
+    assert cap.usable_words == 1
+    assert low.usable_words == 3
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        (Config(avoid_similar=True, symbol_set="|"), "набір спецсимволів порожній"),
+        (Config(avoid_similar=True, separator="|"), "Роздільник містить схожі символи"),
+        (Config(avoid_similar=True, separator="l"), "Роздільник містить схожі символи"),
+    ],
+)
+def test_avoid_similar_errors(config, message):
+    with pytest.raises(ConfigError, match=message):
+        Generator(config)
+
+
+def test_avoid_similar_costs_a_little_entropy():
+    base = Generator().entropy_bits()
+    avoided = Generator(Config(avoid_similar=True)).entropy_bits()
+    assert 0 < base - avoided < 4
