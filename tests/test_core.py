@@ -77,10 +77,10 @@ def test_entropy_matches_original_script(words_count, max_len):
 
 def test_default_entropy_with_builtin_wordlist():
     gen = Generator()
-    assert gen.wordlist_size == 3495
-    # розкидання додає розташувань: ~89.6 біт проти ~81.8 для груп
-    assert 89 < gen.entropy_bits() < 90.5
-    assert 81 < Generator(Config(scatter=False)).entropy_bits() < 83
+    assert gen.wordlist_size == 9904
+    # розкидання додає розташувань: ~90.6 біт проти ~82.9 для груп
+    assert 90 < gen.entropy_bits() < 91.5
+    assert 82 < Generator(Config(scatter=False)).entropy_bits() < 84
 
 
 def test_uniform_over_all_phrases():
@@ -217,7 +217,7 @@ def test_word_length_entropy_counts_only_matching_words():
 def test_default_word_length_keeps_original_behaviour():
     assert (
         Generator().entropy_bits()
-        == Generator(Config(word_len_min=3, word_len_max=7)).entropy_bits()
+        == Generator(Config(word_len_min=3, word_len_max=9)).entropy_bits()
     )
 
 
@@ -228,7 +228,7 @@ def test_default_word_length_keeps_original_behaviour():
         (Config(word_len_min=1), "Мінімум літер у слові"),
         (Config(word_len_max=13), "Максимум літер у слові"),
         (Config(word_len_min=10, word_len_max=12), "немає слів довжиною від 10 до 12 літер"),
-        (Config(word_len_min=8, word_len_max=8), "немає слів довжиною рівно 8 літер"),
+        (Config(word_len_min=11, word_len_max=11), "немає слів довжиною рівно 11 літер"),
     ],
 )
 def test_invalid_word_length(config, message):
@@ -436,8 +436,111 @@ def test_length_text():
     assert length_text(Config(max_len=21)) == "до 21 символу"
 
 
+def test_words_count():
+    from passgen.core import words_count
+
+    assert [words_count(n) for n in (1, 3, 5, 11, 21, 3495, 9904)] == [
+        "1 слово",
+        "3 слова",
+        "5 слів",
+        "11 слів",
+        "21 слово",
+        "3495 слів",
+        "9904 слова",
+    ]
+
+
 def test_word_len_text_genitive():
     from passgen.core import word_len_text
 
     assert word_len_text(Config(word_len_min=2, word_len_max=4)) == "від 2 до 4 літер"
     assert word_len_text(Config(word_len_min=3, word_len_max=3)) == "рівно 3 літери"
+
+
+# ---------- велика літера у випадковому місці та leet ----------
+
+
+def test_spellings_counts():
+    from passgen.core import spellings
+
+    assert spellings("seat", Case.CAPITALIZE, leet=False) == 1
+    assert spellings("seat", Case.RANDOM, leet=False) == 4
+    # внутрішні «e», «a» замінні: 2^2 = 4
+    assert spellings("seat", Case.CAPITALIZE, leet=True) == 4
+    # велика на s/t: 2·4, на e/a: 2·2 → 12
+    assert spellings("seat", Case.RANDOM, leet=True) == 12
+    # перша й остання літери не замінюються
+    assert spellings("sat", Case.LOWER, leet=True) == 2
+    assert spellings("dry", Case.LOWER, leet=True) == 1
+
+
+def test_random_case_and_leet_are_uniform_and_exact():
+    cfg = Config(
+        words=1,
+        max_len=10,
+        digits_min=0,
+        digits_max=0,
+        symbols_min=0,
+        symbols_max=0,
+        case=Case.RANDOM,
+        leet=True,
+    )
+    gen = Generator(cfg, ["seat"], randbelow=seeded(21))
+    assert 2 ** gen.entropy_bits() == pytest.approx(12)
+    n = 12_000
+    counts = Counter(gen.generate().text for _ in range(n))
+    assert set(counts) == {
+        "Seat",
+        "S3at",
+        "Se@t",
+        "S3@t",
+        "seaT",
+        "s3aT",
+        "se@T",
+        "s3@T",
+        "sEat",
+        "sE@t",
+        "seAt",
+        "s3At",
+    }
+    for c in counts.values():
+        assert c / n == pytest.approx(1 / 12, abs=0.015)
+
+
+def test_leet_count_is_exact_with_prefix_words():
+    # «car7» могло б бути і «cart» з t→7, і «car» + цифра 7, але кінцеві літери
+    # не замінюються, тож усі 80 фраз різні: (2 + 2) · 10 · 2 розташування
+    cfg = Config(
+        words=1,
+        max_len=10,
+        digits_min=1,
+        digits_max=1,
+        symbols_min=0,
+        symbols_max=0,
+        symbol_set="",
+        leet=True,
+    )
+    gen = Generator(cfg, ["car", "cart"], randbelow=seeded(22))
+    assert 2 ** gen.entropy_bits() == pytest.approx(80)
+    assert len({gen.generate().text for _ in range(8000)}) == 80
+
+
+@pytest.mark.parametrize("case", [Case.CAPITALIZE, Case.RANDOM, Case.UPPER])
+def test_leet_and_case_decode_back_to_word(case):
+    from passgen.core import LEET
+
+    back = {v: k for k, v in LEET.items()}
+    gen = Generator(Config(case=case, leet=True, max_len=40), randbelow=seeded(23))
+    for _ in range(300):
+        for seg in gen.generate().segments:
+            written = kinds(seg)["word"]
+            assert written[0].isalpha() and written[-1].isalpha()
+            assert "".join(back.get(c, c) for c in written).lower() == seg.word
+            if case is Case.RANDOM:
+                assert sum(c.isupper() for c in written) == 1
+
+
+def test_random_case_and_leet_add_entropy():
+    base = Generator().entropy_bits()
+    both = Generator(Config(case=Case.RANDOM, leet=True)).entropy_bits()
+    assert both - base > 6

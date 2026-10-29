@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from passgen.core import Case, Config, ConfigError, Generator
+from passgen.core import Case, Config, ConfigError, Generator, words_count
 from passgen.wordlist import WordlistError, load_file
 
 
@@ -79,12 +79,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--case",
         choices=[c.value for c in Case],
         default=d.case.value,
-        help="регістр слів (capitalize)",
+        help="регістр слів (capitalize); random — одна велика літера у випадковому місці",
     )
     ap.add_argument(
         "--grouped",
         action="store_true",
         help="цифри й символи лише групами, як у початковому passgen.py",
+    )
+    ap.add_argument(
+        "--leet",
+        action="store_true",
+        help="leet-заміни всередині слів: a e i o s t → @ 3 1 0 $ 7",
     )
     ap.add_argument("--wordlist", metavar="FILE", help="власний словник (.txt)")
     ap.add_argument("--plain", action="store_true", help="лише фрази, без таблиці")
@@ -114,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         separator=args.sep,
         case=Case(args.case),
         scatter=not args.grouped,
+        leet=args.leet,
     )
     try:
         words = load_file(args.wordlist) if args.wordlist else None
@@ -135,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Біт = стійкість, навіть якщо зловмисник знає точний шаблон фрази.")
     print(
         f"Стійкість генератора загалом (знає лише правила): "
-        f"~{gen.entropy_bits():.1f} біт. Словник: {gen.wordlist_size} слів."
+        f"~{gen.entropy_bits():.1f} біт. Словник: {words_count(gen.wordlist_size)}."
     )
     return 0
 

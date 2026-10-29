@@ -43,7 +43,7 @@ def test_cli_table_and_options(capsys):
     out = capsys.readouterr().out
     assert "Парольна фраза" in out
     assert "Стійкість генератора загалом" in out
-    assert "Словник: 3495 слів" in out
+    assert "Словник: 9904 слова" in out
 
 
 def test_cli_rejects_impossible_length(capsys):
@@ -70,9 +70,11 @@ def test_cli_custom_wordlist(tmp_path, capsys):
 
 def test_builtin_wordlist_clean():
     words = builtin_words()
-    assert len(words) == 3495
+    assert len(words) == 9904
     assert len(set(words)) == len(words)
-    for removed in ("piss", "lynch", "fascist", "berlin", "batman"):
+    assert {len(w) for w in words} == set(range(3, 10))
+    # стоп-слова прибрано і з власного списку, і з EFF
+    for removed in ("piss", "lynch", "fascist", "berlin", "batman", "trump", "twitter"):
         assert removed not in words
 
 
@@ -215,3 +217,18 @@ def test_old_settings_get_new_defaults(tmp_path):
     path.write_text(json.dumps({"config": {"words": 3, "max_len": 26}}))
     cfg = settings.load(path).config
     assert (cfg.min_len, cfg.auto_words, cfg.scatter) == (1, False, True)
+
+
+def test_cli_random_case_and_leet(capsys):
+    main(["-n", "30", "--plain", "--case", "random", "--leet", "--grouped", "--sep", "_"])
+    for line in capsys.readouterr().out.splitlines():
+        for part in line.split("_"):
+            word = max(re.findall(r"[A-Za-z][A-Za-z@310$7]*[A-Za-z]|[A-Za-z]+", part), key=len)
+            assert sum(c.isupper() for c in word) == 1
+
+
+def test_settings_roundtrip_case_random_leet(tmp_path):
+    path = tmp_path / "s.json"
+    cfg = Config(case=Case.RANDOM, leet=True)
+    settings.save(settings.AppSettings(config=cfg), path)
+    assert settings.load(path).config == cfg

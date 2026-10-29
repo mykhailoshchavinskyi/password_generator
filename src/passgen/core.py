@@ -41,13 +41,22 @@ class Case(str, Enum):
     CAPITALIZE = "capitalize"
     LOWER = "lower"
     UPPER = "upper"
+    # одна велика літера у випадковому місці слова, решта малі: «слОво»
+    RANDOM = "random"
 
     def apply(self, word: str) -> str:
+        """Детермінований регістр; для RANDOM позицію великої літери вибирає генератор."""
         if self is Case.UPPER:
             return word.upper()
-        if self is Case.LOWER:
-            return word.lower()
-        return word.capitalize()
+        if self is Case.CAPITALIZE:
+            return word.capitalize()
+        return word.lower()
+
+
+# Leet-заміни. Застосовуються лише до внутрішніх літер слова (не першої й не останньої),
+# тож межі слова у фразі завжди видно і кожну фразу можна однозначно розібрати назад.
+# Заміни взаємно однозначні, тому різні варіанти слова дають різні рядки.
+LEET = {"a": "@", "e": "3", "i": "1", "o": "0", "s": "$", "t": "7"}
 
 
 @dataclass(frozen=True)
@@ -72,6 +81,8 @@ class Config:
     # True: кожна цифра й кожен символ стоять окремо у випадковому місці частини
     # (групи теж можливі); False: цифри й символи завжди йдуть суцільними блоками
     scatter: bool = True
+    # True: внутрішні літери з LEET незалежно, з імовірністю ½, замінюються знаками
+    leet: bool = False
 
 
 @dataclass(frozen=True)
@@ -129,6 +140,15 @@ def word_len_text(config: Config) -> str:
     """«рівно 5 літер» або «від 4 до 6 літер» — для повідомлень користувачу."""
     lo, hi = config.word_len_min, config.word_len_max
     return f"рівно {letters(lo)}" if lo == hi else f"від {lo} до {_genitive(hi, 'літери', 'літер')}"
+
+
+def words_count(n: int) -> str:
+    """1 слово, 4 слова, 9904 слова, 3495 слів."""
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} слово"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} слова"
+    return f"{n} слів"
 
 
 def symbols_count(n: int) -> str:
@@ -194,6 +214,23 @@ def validate(config: Config) -> None:
         raise ConfigError("Роздільник не може містити пробіли чи службові символи.")
 
 
+def leet_positions(word: str) -> list[int]:
+    """Позиції внутрішніх літер слова, які можна замінити (див. LEET)."""
+    return [i for i in range(1, len(word) - 1) if word[i] in LEET]
+
+
+def spellings(word: str, case: Case, leet: bool) -> int:
+    """Скільки різних написань дає слово з цим регістром і leet-заміною.
+
+    Велика літера (у режимі RANDOM) не замінюється, тож якщо вона стоїть на місці,
+    придатному для заміни, варіантів leet на один біт менше.
+    """
+    m = len(leet_positions(word)) if leet else 0
+    if case is Case.RANDOM:
+        return (len(word) - m) * 2**m + m * 2 ** max(m - 1, 0)
+    return 2**m
+
+
 def arrangements(nd: int, ns: int, scatter: bool) -> int:
     """Скільки різних розташувань слова, nd цифр і ns символів у частині.
 
@@ -248,13 +285,19 @@ class Generator:
         for w in words:
             by_len[len(w)].append(w)
         self._by_len = {n: tuple(ws) for n, ws in sorted(by_len.items())}
+        # кожне слово рахується стільки разів, скільки має різних написань,
+        # і вибирається з такою ж вагою — тож усі написання рівноймовірні
+        self._spellings = {
+            n: [spellings(w, config.case, config.leet) for w in ws]
+            for n, ws in self._by_len.items()
+        }
 
         # тип частини: (довжина слова, к-сть цифр, к-сть символів)
         self._types: list[tuple[tuple[int, int, int], int, int]] = []
-        for n, ws in self._by_len.items():
+        for n in self._by_len:
             for nd in range(config.digits_min, config.digits_max + 1):
                 for ns in range(config.symbols_min, config.symbols_max + 1):
-                    count = len(ws) * len(DIGITS) ** nd * len(self._symbols) ** ns
+                    count = sum(self._spellings[n]) * len(DIGITS) ** nd * len(self._symbols) ** ns
                     if count == 0:
                         continue
                     orders = arrangements(nd, ns, config.scatter)
@@ -353,22 +396,39 @@ class Generator:
         (n, nd, ns), count, _ = self._weighted_choice(
             [(t, t[2]) for t in self._types if sum(t[0]) == seg_len]
         )
-        word = self._choice(self._by_len[n])
+        word = self._weighted_choice(list(zip(self._by_len[n], self._spellings[n], strict=True)))
+        written = self._spell(word)
         digits = [self._choice(DIGITS) for _ in range(nd)]
         symbols = [self._choice(self._symbols) for _ in range(ns)]
         if self.config.scatter:
             # кожна цифра й символ — окремий елемент; рівномірна перестановка всіх
             # елементів дає рівномірний вибір серед arrangements(nd, ns) розташувань
-            parts = [("word", self.config.case.apply(word))]
+            parts = [("word", written)]
             parts += [("digits", d) for d in digits] + [("symbols", c) for c in symbols]
         else:
             parts = [
-                ("word", self.config.case.apply(word)),
+                ("word", written),
                 ("digits", "".join(digits)),
                 ("symbols", "".join(symbols)),
             ]
         self._shuffle(parts)
         return Segment(word, tuple(p for p in parts if p[1]), count)
+
+    def _spell(self, word: str) -> str:
+        """Рівномірно вибране написання слова серед spellings(word) варіантів."""
+        cfg = self.config
+        subs = leet_positions(word) if cfg.leet else []
+        chars = list(cfg.case.apply(word))
+        if cfg.case is Case.RANDOM:
+            # позиція великої літери з вагою 2^(кількість решти замін)
+            weights = [2 ** (len(subs) - (i in subs)) for i in range(len(word))]
+            cap = self._weighted_choice(list(zip(range(len(word)), weights, strict=True)))
+            chars[cap] = chars[cap].upper()
+            subs = [i for i in subs if i != cap]
+        for i in subs:
+            if self._randbelow(2):
+                chars[i] = LEET[word[i]]
+        return "".join(chars)
 
     def generate(self) -> Passphrase:
         """Одна фраза, рівномірно вибрана серед усіх, що відповідають налаштуванням."""

@@ -300,3 +300,17 @@ def test_reset_defaults_restores_length_mode(window):
     assert window.length.values() == (1, 26)
     assert window.words_slider.isEnabled()
     assert window.scatter_check.isChecked()
+
+
+def test_random_case_and_leet_in_gui(window, qtbot):
+    window.case_combo.setCurrentIndex(window.case_combo.findData(Case.RANDOM.value))
+    window.leet_check.setChecked(True)
+    cfg = window.settings.config
+    assert (cfg.case, cfg.leet) == (Case.RANDOM, True)
+    for seg in window.phrase.segments:
+        written = "".join(t for k, t in seg.parts if k == "word")
+        assert sum(c.isupper() for c in written) == 1
+    w2 = MainWindow(AppSettings(config=cfg))
+    qtbot.addWidget(w2)
+    assert w2.leet_check.isChecked()
+    assert w2.case_combo.currentData() == Case.RANDOM.value

@@ -43,6 +43,7 @@ from passgen.core import (
     Generator,
     Passphrase,
     strength_label,
+    words_count,
 )
 from passgen.gui import theme
 from passgen.gui.clipboard import ClipboardGuard
@@ -54,7 +55,12 @@ from passgen.wordlist import WordlistError, builtin_words, load_file
 GUIDE_URL = (
     "https://github.com/mykhailoshchavinskyi/password_generator/blob/HEAD/docs/user-guide.md"
 )
-CASE_LABELS = {Case.CAPITALIZE: "Слово", Case.LOWER: "слово", Case.UPPER: "СЛОВО"}
+CASE_LABELS = {
+    Case.CAPITALIZE: "Слово",
+    Case.LOWER: "слово",
+    Case.UPPER: "СЛОВО",
+    Case.RANDOM: "слОво (випадкова велика)",
+}
 ZWSP = "\u200b"  # дозволяє переносити довгу фразу; у буфер обміну не потрапляє
 
 
@@ -213,7 +219,16 @@ class MainWindow(QMainWindow):
         self.case_combo = QComboBox()
         for case, label in CASE_LABELS.items():
             self.case_combo.addItem(label, case.value)
+        self.case_combo.setToolTip(
+            "слОво — одна велика літера у випадковому місці слова, решта малі"
+        )
         form.addRow("Регістр слів", self.case_combo)
+        self.leet_check = QCheckBox("Leet-заміни всередині слів")
+        self.leet_check.setToolTip(
+            "Внутрішні літери a e i o s t випадково замінюються на @ 3 1 0 $ 7, "
+            "наприклад Bl@nk3t.\nПерша й остання літери слова не змінюються."
+        )
+        form.addRow("", self.leet_check)
 
         self.wordlist_label = QLabel()
         self.wordlist_label.setWordWrap(True)
@@ -254,6 +269,7 @@ class MainWindow(QMainWindow):
         self.length.changed.connect(self._on_config_changed)
         self.word_len.changed.connect(self._on_config_changed)
         self.scatter_check.toggled.connect(self._on_config_changed)
+        self.leet_check.toggled.connect(self._on_config_changed)
         for w in (
             self.words_slider,
             self.digits_min,
@@ -335,6 +351,7 @@ class MainWindow(QMainWindow):
         self.words_slider.setValue(c.words)
         self.word_len.set_values(c.word_len_min, c.word_len_max)
         self.scatter_check.setChecked(c.scatter)
+        self.leet_check.setChecked(c.leet)
         self.digits_min.setValue(c.digits_min)
         self.digits_max.setValue(c.digits_max)
         self.digits_min.setValue(c.digits_min)
@@ -364,6 +381,7 @@ class MainWindow(QMainWindow):
             max_len=self.length.values()[1],
             auto_words=self.length.current_mode() != UPTO,
             scatter=self.scatter_check.isChecked(),
+            leet=self.leet_check.isChecked(),
             digits_min=self.digits_min.value(),
             digits_max=self.digits_max.value(),
             symbols_min=self.symbols_min.value(),
@@ -489,7 +507,7 @@ class MainWindow(QMainWindow):
     def _apply_wordlist(self, words: tuple[str, ...], path: str | None) -> None:
         self._words = words
         name = Path(path).name if path else "Вбудований"
-        self.wordlist_label.setText(f"{name}, {len(words)} слів")
+        self.wordlist_label.setText(f"{name}, {words_count(len(words))}")
         self.wordlist_label.setToolTip(path or "")
         self.builtin_button.setEnabled(bool(path))
 
@@ -579,6 +597,8 @@ class MainWindow(QMainWindow):
             "Фраза рівномірно вибирається серед усіх, що відповідають налаштуванням, "
             "за допомогою криптографічно стійкого генератора випадкових чисел. "
             "Паролі ніде не зберігаються і не передаються.<br><br>"
+            "Словник містить слова з EFF Large Wordlist (Electronic Frontier Foundation), "
+            '<a href="https://www.eff.org/dice">eff.org/dice</a>, ліцензія CC BY 3.0 US.<br><br>'
             f"Автор: {__author__}<br>"
             f'Пошта: <a href="mailto:{__email__}">{__email__}</a>'
         )
