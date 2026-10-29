@@ -463,10 +463,13 @@ class MainWindow(QMainWindow):
             # зміна прапорців перестворює вікно і ховає його (на Windows — завжди),
             # тож видимість і положення запам'ятовуємо до зміни
             was_visible = self.isVisible()
-            geometry = self.saveGeometry()
+            # pos() і move() працюють з рамкою вікна однаково на всіх ОС; restoreGeometry
+            # на macOS зсуває вікно на висоту заголовка
+            pos, size = self.pos(), self.size()
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on)
             if was_visible:
-                self.restoreGeometry(geometry)
+                self.resize(size)
+                self.move(pos)
                 self.show()
                 self.raise_()
                 self.activateWindow()
